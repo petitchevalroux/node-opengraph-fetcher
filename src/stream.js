@@ -1,7 +1,7 @@
 "use strict";
 var stream = require("stream");
 var util = require("util");
-var Duplex = stream.Duplex;
+var Transform = stream.Transform;
 var Promise = require("bluebird");
 
 function OpengraphStream(options) {
@@ -14,12 +14,17 @@ function OpengraphStream(options) {
     this.opengraph = require("open-graph");
     this.async = require("async");
     delete options.concurrency;
-    Duplex.call(this, options);
+    Transform.call(this, options);
     var self = this;
     self.queue = self.async.queue(
         function(url, callback) {
             self.fetch(url)
-                .then(function() {
+                .then(function(meta) {
+                    // Do not push empty object
+                    if (Object.getOwnPropertyNames(meta)
+                        .length) {
+                        self.push(meta);
+                    }
                     callback();
                     return;
                 })
@@ -32,48 +37,33 @@ function OpengraphStream(options) {
         },
         self.concurrency
     );
-    this.metas = [];
+
+    this.queue.drain = function() {
+        if (self._flushcb && self.queue.idle()) {
+            self._flushcb();
+        }
+    };
+
+    this.started = false;
 }
 
-/**
- * Call when url are push in input 
- * @param {mixed} chunk
- * @param {type} enc
- * @param {type} cb
- * @returns {undefined}
- */
-OpengraphStream.prototype._write = function(chunk, enc, cb) {
+OpengraphStream.prototype._transform = function(chunk, encoding, callback) {
     this.queue.push(typeof chunk === "string" ? chunk : chunk.toString());
-    cb();
+    callback();
 };
 
 /**
- * Read urls extracted from sitemap
+ * Called when there is no more written data to be consumed
+ * @param {callable} callback
  * @returns {undefined}
  */
-OpengraphStream.prototype._read = function() {
-    // We have nothing to read
-    if (!this.metas.length) {
-        // Nothing is processing, we end
-        if (this.queue.idle()) {
-            this.push(null);
-        } else {
-            // Something is processing, we push a new read at the end of the
-            // event loop 
-            var self = this;
-            setImmediate(function() {
-                self._read();
-            });
-        }
+OpengraphStream.prototype._flush = function(callback) {
+    if (!this.queue.started) {
+        callback();
     } else {
-        var stop = false;
-        while (this.metas.length > 0 && !stop) {
-            var chunk = this.metas.shift();
-            stop = !this.push(chunk);
-        }
+        this._flushcb = callback;
     }
 };
-
 /**
  * Fetch meta of an url
  * @param {string} url
@@ -87,11 +77,10 @@ OpengraphStream.prototype.fetch = function(url) {
                 reject(err);
                 return;
             }
-            self.metas.push(meta);
             resolve(meta);
         });
     });
 };
 
-util.inherits(OpengraphStream, Duplex);
+util.inherits(OpengraphStream, Transform);
 module.exports = OpengraphStream;

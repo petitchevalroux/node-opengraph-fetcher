@@ -3,6 +3,7 @@ var stream = require("stream");
 var path = require("path");
 var assert = require("assert");
 var sinon = require("sinon");
+var Promise = require("bluebird");
 describe("Stream tests", function() {
     var toRestore = [];
     afterEach(function() {
@@ -22,8 +23,8 @@ describe("Stream tests", function() {
         var inputStream = new stream.Readable();
         var s = new S();
         toRestore.push(sinon.stub(s, "opengraph",
-            function() {
-                throw new Error("test error");
+            function(url, cb) {
+                cb(new Error("test error"));
             }));
         s.on("error", function(error) {
             assert(error instanceof Error);
@@ -32,7 +33,7 @@ describe("Stream tests", function() {
         inputStream.pipe(s)
             .pipe(new stream.Writable());
         inputStream.push(
-            "http://github.com/samholmes/node-open-graph/raw/master/test.html"
+            "https://raw.githubusercontent.com/petitchevalroux/node-opengraph-fetcher/master/tests/test.html"
         );
         inputStream.push(null);
     });
@@ -43,4 +44,31 @@ describe("Stream tests", function() {
         done();
     });
 
+    it("Send end/finish signals with empty input stream", function(done) {
+        var inputStream = new stream.Readable();
+        var s = new S();
+        var writeStream = new stream.Writable();
+        inputStream
+            .pipe(s)
+            .pipe(writeStream);
+        inputStream.push(null);
+        var promises = [
+            new Promise(function(resolve) {
+                s.on("end", function() {
+                    resolve();
+                });
+            }),
+            new Promise(function(resolve) {
+                writeStream.on("finish", function() {
+                    resolve();
+                });
+            })
+        ];
+        Promise.all(promises)
+            .then(function() {
+                done();
+                return;
+            })
+            .catch(function() {});
+    });
 });
