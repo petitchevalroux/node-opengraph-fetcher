@@ -1,6 +1,6 @@
 {
   "name": "@petitchevalroux/opengraph-fetcher",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "NodeJS opengraph fetcher using a duplex stream",
   "main": "src/stream.js",
   "scripts": {
